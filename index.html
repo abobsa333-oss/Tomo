@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>غرفة بالكود</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#10231f;--panel:#17332d;--line:#2a4d45;--text:#eef3ef;--mute:#8fb0a6;--accent:#f2b84b;--mine:#f2b84b;--mine-t:#2b1d00;--other:#1f3f37}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{font-family:Tajawal,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:16px}
+button,input{font:inherit;color:inherit}
+.screen{height:100%;display:flex;flex-direction:column}
+.hidden{display:none!important}
+
+/* شاشة الدخول */
+#join{justify-content:center;padding:24px;max-width:420px;margin:0 auto}
+#join h1{font-size:2.4rem;font-weight:800;margin:0 0 6px;line-height:1.2}
+#join p{color:var(--mute);margin:0 0 28px}
+label{display:block;color:var(--mute);margin:0 0 6px;font-size:.9rem}
+input{width:100%;padding:14px;border-radius:10px;border:1.5px solid var(--line);background:var(--panel);margin-bottom:18px;outline:none}
+input:focus-visible{border-color:var(--accent)}
+#code{font-size:1.5rem;letter-spacing:.2em;text-align:center;direction:ltr;font-weight:800}
+.row{display:flex;gap:10px}
+.btn{padding:14px 18px;border-radius:10px;border:0;background:var(--accent);color:var(--mine-t);font-weight:800;cursor:pointer;flex:1}
+.btn.ghost{background:transparent;color:var(--text);border:1.5px solid var(--line);flex:0 0 auto}
+.btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+#err{color:#ff8f7a;min-height:1.4em;margin-top:12px}
+
+/* شاشة الدردشة */
+#chat{padding-top:env(safe-area-inset-top)}
+header{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+header .info{flex:1}
+header b{font-size:1.15rem;letter-spacing:.15em;direction:ltr;display:inline-block}
+header small{display:block;color:var(--mute)}
+#msgs{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:80%;padding:9px 13px;border-radius:14px;background:var(--other);overflow-wrap:anywhere;line-height:1.5}
+.m .n{display:block;font-size:.78rem;color:var(--accent);font-weight:500}
+.m .t{display:block;font-size:.7rem;color:var(--mute);margin-top:2px}
+.m.me{align-self:flex-start;background:var(--mine);color:var(--mine-t);border-end-start-radius:4px}
+.m.me .t{color:#6b4d10}
+.m:not(.me){align-self:flex-end;border-end-end-radius:4px}
+.s{align-self:center;color:var(--mute);font-size:.85rem}
+form{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line)}
+form input{margin:0;flex:1}
+form .btn{flex:0 0 auto}
+@media (prefers-reduced-motion:no-preference){.m{animation:in .15s ease-out}@keyframes in{from{opacity:0;transform:translateY(4px)}}}
+</style>
+</head>
+<body>
+
+<section id="join" class="screen">
+  <h1>ادخل غرفة بالكود</h1>
+  <p>اكتب نفس الكود مع صديقك وتبدأون الدردشة مباشرة.</p>
+  <label for="name">اسمك</label>
+  <input id="name" maxlength="20" autocomplete="nickname">
+  <label for="code">كود الغرفة</label>
+  <input id="code" maxlength="24" autocapitalize="characters" autocomplete="off">
+  <div class="row">
+    <button class="btn" id="go">دخول</button>
+    <button class="btn ghost" id="rnd" type="button">كود عشوائي</button>
+  </div>
+  <div id="err" role="alert"></div>
+</section>
+
+<section id="chat" class="screen hidden">
+  <header>
+    <div class="info"><b id="roomCode"></b><small id="count"></small></div>
+    <button class="btn ghost" id="copy" type="button">نسخ الكود</button>
+    <button class="btn ghost" id="leave" type="button">خروج</button>
+  </header>
+  <div id="msgs" aria-live="polite"></div>
+  <form id="f">
+    <input id="text" maxlength="1000" placeholder="اكتب رسالة" autocomplete="off">
+    <button class="btn">إرسال</button>
+  </form>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+let ws, myName = '', code = '', retry = 0, inRoom = false;
+
+$('name').value = (()=>{try{return localStorage.getItem('name')||''}catch{return ''}})();
+const hash = decodeURIComponent(location.hash.slice(1));
+if (hash) $('code').value = hash.toUpperCase();
+
+$('rnd').onclick = () => {
+  const c = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  $('code').value = Array.from({length:6},()=>c[Math.floor(Math.random()*c.length)]).join('');
+};
+$('go').onclick = join;
+$('code').onkeydown = $('name').onkeydown = e => e.key === 'Enter' && join();
+
+function join(){
+  myName = $('name').value.trim() || 'مجهول';
+  code = $('code').value.trim().toUpperCase();
+  if (code.length < 3) return $('err').textContent = 'الكود 3 أحرف على الأقل';
+  try{localStorage.setItem('name', myName)}catch{}
+  $('err').textContent = '';
+  connect();
+}
+
+function connect(){
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onopen = () => { retry = 0; ws.send(JSON.stringify({type:'join', code, name:myName})); };
+  ws.onmessage = e => handle(JSON.parse(e.data));
+  ws.onclose = () => {
+    if (!inRoom) return;
+    add({s:'انقطع الاتصال… جارٍ إعادة المحاولة'});
+    setTimeout(connect, Math.min(1000 * ++retry, 5000));
+  };
+}
+
+function handle(m){
+  if (m.type === 'error') {
+    if (!inRoom) $('err').textContent = m.text; else add({s:m.text});
+  } else if (m.type === 'joined') {
+    $('join').classList.add('hidden'); $('chat').classList.remove('hidden');
+    $('roomCode').textContent = m.code;
+    if (!inRoom) { $('msgs').innerHTML = ''; m.history.forEach(add); }
+    inRoom = true; location.hash = m.code;
+  } else if (m.type === 'system') {
+    $('count').textContent = `${m.count} متصل`; add({s:m.text});
+  } else if (m.type === 'msg') add(m);
+}
+
+function add(m){
+  const box = $('msgs'), d = document.createElement('div');
+  if (m.s) { d.className = 's'; d.textContent = m.s; }
+  else {
+    d.className = 'm' + (m.name === myName ? ' me' : '');
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = m.name;
+    const t = document.createElement('span'); t.textContent = m.text;
+    const h = document.createElement('span'); h.className = 't';
+    h.textContent = new Date(m.time).toLocaleTimeString('ar', {hour:'2-digit', minute:'2-digit'});
+    if (m.name !== myName) d.append(n);
+    d.append(t, h);
+  }
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  box.append(d);
+  if (atEnd || m.name === myName) box.scrollTop = box.scrollHeight;
+}
+
+$('f').onsubmit = e => {
+  e.preventDefault();
+  const v = $('text').value.trim();
+  if (!v || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({type:'msg', text:v}));
+  $('text').value = '';
+};
+$('copy').onclick = () => {
+  const link = location.href;
+  (navigator.clipboard ? navigator.clipboard.writeText(link) : Promise.reject())
+    .then(() => $('copy').textContent = 'تم النسخ')
+    .catch(() => $('copy').textContent = code)
+    .finally(() => setTimeout(() => $('copy').textContent = 'نسخ الكود', 1500));
+};
+$('leave').onclick = () => { inRoom = false; ws.close(); location.hash = ''; location.reload(); };
+</script>
+</body>
+</html>
