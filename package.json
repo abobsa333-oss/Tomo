@@ -1,0 +1,9 @@
+{
+  "name": "code-chat",
+  "version": "1.0.0",
+  "description": "دردشة مباشرة عبر كود الغرفة",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "ws": "^8.18.0" },
+  "engines": { "node": ">=18" }
+}
